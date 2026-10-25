@@ -1,0 +1,30 @@
+services:
+  ordo:
+    build: .
+    image: ordo:local
+    container_name: ordo
+    restart: unless-stopped
+    ports:
+      # Yalnız serverin özündən əlçatandır. "8000:8000" yazmaq olmaz: Docker UFW-dan yan keçib portu internetə açar
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ordo-data:/data
+    # Konteynerin fayl sistemi yalnız oxunur; yazmaq yalnız /data (baza) və /tmp-yə olur
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Kiçik serverlərdə ORDO yaddaşı doldurub sistemi dayandırmasın
+    mem_limit: 256m
+    pids_limit: 100
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  ordo-data:

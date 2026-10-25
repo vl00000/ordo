@@ -1,0 +1,6 @@
+# Konteynerə yalnız server kodu gedir: testlər, baza faylları, keş və sənədlər yox
+*
+!requirements.txt
+!ordo/
+ordo/__pycache__/
+**/*.pyc

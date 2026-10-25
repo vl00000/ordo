@@ -1,0 +1,10 @@
+# Testlər üçün əlavə asılılıqlar (serverə lazım deyil)
+-r requirements.txt
+pytest==9.1.1
+iniconfig==2.3.1
+pluggy==1.7.0
+packaging==26.3
+Pygments==2.21.0
+httpx==0.28.1
+httpcore==1.0.9
+certifi==2026.10.23
