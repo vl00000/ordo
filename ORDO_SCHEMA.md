@@ -1,6 +1,6 @@
 # ORDO v0.1 — sxem və qaydalar
 
-Son yenilənmə: 2026-10-25
+Son yenilənmə: 2026-10-25 (v0.1.1)
 Kod: `ordo/store.py` (nüvə), `ordo/db.py` (SQLite), `ordo/api.py` + `ordo/keys.py` + `ordo/server.py` (HTTP API), `ordo/sectors.py` (sektorlar), `ordo/backup.py` (backup surəti və bərpa yoxlaması), `ordo/scout.py` (SCOUT v0.1, hazırda gözləmədə)
 Testlər: `tests/` — işlətmək üçün `..\venv\Scripts\python.exe -m pytest -q`
 
@@ -78,7 +78,7 @@ Clinic (name*) --HAS_PATIENT--> Patient (contact*) --BOOKED--> Appointment (date
 ..\venv\Scripts\python.exe -m uvicorn ordo.server:app --host 127.0.0.1 --port 8000 --workers 1 --no-server-header
 ```
 
-**Açarlar:** hər açar bir tenant-a, bir actor-a və bir rola bağlıdır. Bazada yalnız həşi saxlanır, açarın özü bir dəfə göstərilir.
+**Açarlar:** hər açar bir tenant-a, bir actor-a və bir rola bağlıdır. Bazada yalnız həşi saxlanır, açarın özü bir dəfə göstərilir. Müddəti yaradılandan `ORDO_KEY_MAX_DAYS` gündür (standart 90, 1–365).
 
 ```bash
 ..\venv\Scripts\python.exe -m ordo.keys create --tenant A --actor user1 --role writer
@@ -106,6 +106,7 @@ Sorğu başlığı: `Authorization: Bearer ordo_...`
 - `writer` oxuyur və yazır; `reader` yalnız oxuyur (yazma cəhdi 403).
 - Sxem API ilə dəyişdirilmir, yalnız `sectors.py`-dən gəlir.
 - Cavab kodları: 401 açar yoxdur/yanlışdır, 403 rol icazə vermir, 404 tapılmadı **və ya başqa tenant-ındır** (eyni cavab), 409 köhnə versiya, 411 Content-Length yoxdur, 413 sorğu 64 KB-dan böyükdür, 422 səhv data.
+- Siyahı cavabları (`/objects`, `/history`, `/related`, `/audit`) `?limit=` (1–1000, standart 100) və `?offset=` ilə səhifələnir.
 - `/docs` və `/openapi.json` bağlıdır.
 
 ## 5. SCOUT v0.1 axını (`scout.py`)
@@ -119,7 +120,7 @@ scout.confirm(insan) → status="fact"
 
 - SCOUT özü internetdən məlumat toplamır; müşahidəni insan və ya gələcək kolleksiyaçı verir.
 - Mənbəsiz müşahidə qəbul olunmur.
-- `fact` statusunu yalnız insan verir. SCOUT öz müşahidəsini təsdiqləyə bilməz (`" scout"`, `"SCOUT"` kimi yazılışlarla da).
+- `fact` statusunu yalnız insan verir. SCOUT öz müşahidəsini təsdiqləyə bilməz (`" scout"`, `"SCOUT"` kimi yazılışlarla da). Qayda nüvədədir: `scout` actor-u `store`-u birbaşa çağırsa da `fact` versiyası yarada bilməz.
 - Təsdiqlənmiş faktdan sonra fərqli müşahidə gəlsə, obyekt yenidən `claim` olur; fakt versiyası tarixçədə qalır.
 
 ## 6. Bilinən məhdudiyyətlər (növbəti mərhələlər)
@@ -128,11 +129,11 @@ scout.confirm(insan) → status="fact"
 |---|---|
 | Eyni `ordo.db` faylını yalnız **bir** ORDO prosesi açmalıdır. İkinci proses yazanda xəta alır (data pozulmur, amma işləmir) | Serverdə tək proses (1 worker) |
 | `ordo.db` faylına diskdən birbaşa çatan şəxs bütün qaydaları keçir | Serverdə fayl icazələri (yalnız ORDO istifadəçisi) + şifrəli backup (həll olunub: `deploy/DEPLOY.md` → "Backup və bərpa") |
-| API açarı oğurlansa, sahibi kimi işləmək olar. Açarlar müddətsizdir | Açarı ləğv et (`keys revoke`) və yenisini yarat; serverdə HTTPS tunel |
-| `store.update_object(status="fact")` birbaşa çağırılsa, SCOUT-un insan təsdiqi qaydası keçilir | Mərhələ B: rollar (SCOUT rolu `fact` verə bilməz) |
+| API açarı oğurlansa, müddəti bitənə qədər (standart 90 gün) sahibi kimi işləmək olar | Açarı dərhal ləğv et (`keys revoke`); qoşulma yalnız SSH tunel ilə |
+| ~~`store.update_object(status="fact")` birbaşa çağırılsa, SCOUT-un insan təsdiqi qaydası keçilir~~ | Həll olunub (v0.1.1): qayda nüvədədir |
 | Sxem yalnız server kodunda (`sectors.py`) dəyişir, API ilə yox | Həll olunub |
 | Silmə yoxdur; silmə siyasəti (cascade və ya qadağa) seçilməlidir | Ehtiyac yarananda |
 | Status obyekt səviyyəsindədir, sahə səviyyəsində deyil | Real SCOUT datası göstərsə |
 | Backup faylı açıq sertifikatla şifrələnir: serveri sındıran saxta (amma düzgün şifrəli) backup yarada bilər. Laptop hər faylı yoxlayır, amma datanın *doğruluğunu* yox, yalnız *tamlığını* | Qəbul edilib: server sındırılıbsa, onsuz da canlı baza onun əlindədir |
 | Laptopdakı deşifrə açarı parolsuzdur (avtomatik yoxlama üçün); yalnız Windows istifadəçisi oxuya bilir | Laptopun diski şifrəli olmalıdır (BitLocker) |
-| Tarixçə və `props` ölçüsü limitsizdir; `find` və `related` bütün obyektləri gəzir | DB: limitlər və indekslər |
+| `find` və `related` bütün obyektləri gəzir (`props` ≤ 32 KB, ≤ 10 000 versiya və cavab səhifələməsi v0.1.1-də əlavə olunub) | DB: indekslər |

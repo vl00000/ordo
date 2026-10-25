@@ -6,9 +6,8 @@ SCOUT-un işi:
   2) eyni şeyi ikinci dəfə görəndə dublikat yaratmamaq, dəyişibsə yeni versiya yazmaq;
   3) təsdiqi insana buraxmaq: "fact" statusunu yalnız insan verir (human-in-the-loop).
 """
+from .store import SCOUT_ACTOR as ACTOR
 from .store import SchemaError
-
-ACTOR = "scout"
 
 
 def observe(store, tenant_id, type_name, key, props, source):

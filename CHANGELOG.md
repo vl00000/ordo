@@ -1,5 +1,14 @@
 # Dəyişikliklər
 
+## v0.1.1 (2026-10-25) — sərtləşdirmə
+
+- API açarlarının müddəti: yaradılandan 90 gün (`ORDO_KEY_MAX_DAYS`, 1–365). `keys list` bitmə tarixini göstərir.
+- SCOUT qaydası nüvəyə köçdü: `scout` actor-u heç bir yolla `fact` versiyası yarada bilməz.
+- Limitlər: `props` ≤ 32 KB, obyekt başına ≤ 10 000 versiya, çox dərin JSON rədd edilir.
+- API: `GET /objects`, `/history`, `/related`, `/audit` üçün `limit` (1–1000, standart 100) və `offset`.
+- 23 yeni test (`tests/test_11_hardening.py`), cəmi 163.
+- CI: hər push-da `pytest` (GitHub Actions).
+
 ## v0.1 (2026-10-25) — serverdə işləyir
 
 Mərhələlər:
@@ -14,8 +23,6 @@ Mərhələlər:
 
 Hər mərhələdən sonra təhlükəsizlik yoxlaması aparılıb: bax `SECURITY.md`.
 
-Test sayı: 140, hamısı keçir.
-
 ## Gələcək (təsdiqlənməyib)
 
-Rollar (SCOUT `fact` verə bilməsin), silmə siyasəti, indekslər və limitlər, PostgreSQL.
+Silmə siyasəti, indekslər, PostgreSQL.

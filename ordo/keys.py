@@ -8,6 +8,8 @@ Açarlar 256 bitlik təsadüfi mətndir, ona görə yavaş həş (bcrypt) lazım
   python -m ordo.keys list
   python -m ordo.keys revoke 3
 Baza yolu: --db və ya ORDO_DB mühit dəyişəni (standart: ordo.db).
+Açarın müddəti: yaradılandan ORDO_KEY_MAX_DAYS gün (standart 90, 1-365). Müddət bitəndə
+yeni açar yarat və köhnəsini ləğv et. Oğurlanmış açar ən çox bu müddət qədər işləyir.
 """
 import argparse
 import hashlib
@@ -15,12 +17,23 @@ import os
 import secrets
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from .store import _check_actor, _check_tenant
 
 ROLES = ("reader", "writer")
 PREFIX = "ordo_"
+DEFAULT_MAX_DAYS = 90
+
+
+def _max_days(value=None):
+    raw = value if value is not None else os.environ.get("ORDO_KEY_MAX_DAYS", DEFAULT_MAX_DAYS)
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        days = DEFAULT_MAX_DAYS
+    # Müddətsiz açar olmasın: ən çox bir il
+    return min(max(days, 1), 365)
 
 
 @dataclass(frozen=True)
@@ -37,7 +50,8 @@ def _hash(key):
 
 
 class KeyStore:
-    def __init__(self, path):
+    def __init__(self, path, max_days=None):
+        self.max_age = timedelta(days=_max_days(max_days))
         self._conn = sqlite3.connect(path, check_same_thread=False)
         with self._conn:
             self._conn.execute("""CREATE TABLE IF NOT EXISTS api_keys (
@@ -67,9 +81,21 @@ class KeyStore:
         if not isinstance(key, str) or not key.startswith(PREFIX) or len(key) > 200:
             return None
         row = self._conn.execute(
-            "SELECT id, tenant_id, actor, role FROM api_keys "
+            "SELECT id, tenant_id, actor, role, created_at FROM api_keys "
             "WHERE key_hash = ? AND revoked_at IS NULL", (_hash(key),)).fetchone()
-        return Principal(*row) if row else None
+        if row is None or self.is_expired(row[4]):
+            return None
+        return Principal(*row[:4])
+
+    def expires_at(self, created_at):
+        return datetime.fromisoformat(created_at) + self.max_age
+
+    def is_expired(self, created_at, now=None):
+        # Tarixi oxunmayan açar etibarsız sayılır (fail-closed)
+        try:
+            return (now or datetime.now(timezone.utc)) >= self.expires_at(created_at)
+        except (TypeError, ValueError):
+            return True
 
     def revoke(self, key_id):
         with self._conn:
@@ -103,11 +129,16 @@ def main(argv=None):
         if args.command == "create":
             key_id, key = keys.create(args.tenant, args.actor, args.role)
             print(f"Açar #{key_id} yaradıldı ({args.tenant} / {args.actor} / {args.role}).")
-            print("Açar yalnız indi göstərilir, təhlükəsiz yerdə saxla:")
+            print(f"Müddəti: {keys.max_age.days} gün. Açar yalnız indi göstərilir, təhlükəsiz yerdə saxla:")
             print(key)
         elif args.command == "list":
             for row in keys.list():
-                state = "ləğv edilib" if row[5] else "aktiv"
+                if row[5]:
+                    state = "ləğv edilib"
+                elif keys.is_expired(row[4]):
+                    state = "müddəti bitib"
+                else:
+                    state = f"aktiv, bitir: {keys.expires_at(row[4]):%Y-%m-%d}"
                 print(f"#{row[0]}  tenant={row[1]}  actor={row[2]}  role={row[3]}  {state}")
         elif args.command == "revoke":
             print("Ləğv edildi." if keys.revoke(args.key_id) else "Belə aktiv açar yoxdur.")

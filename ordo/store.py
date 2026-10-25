@@ -13,6 +13,11 @@ from datetime import datetime, timezone
 
 # SCOUT-dan gələn məlumat həmişə fakt deyil: hər obyekt öz statusunu daşıyır
 STATUSES = ("fact", "claim", "hypothesis")
+# Avtomatik toplayıcı: onun yazdığı versiya heç vaxt "fact" ola bilməz, təsdiqi yalnız insan verir
+SCOUT_ACTOR = "scout"
+# Bir obyektin props-u (JSON) və versiya sayı limitsiz böyüyüb yaddaşı doldurmasın
+MAX_PROPS_BYTES = 32 * 1024
+MAX_VERSIONS = 10_000
 
 # Sahə tipləri yalnız JSON-a yazılıb eyni şəkildə geri oxuna bilən tiplər ola bilər
 ALLOWED_TYPES = {t.__name__: t for t in (str, int, float, bool, list, dict)}
@@ -101,6 +106,12 @@ def _check_meta(status, source):
         raise SchemaError("source must be a string")
 
 
+def _check_scout(actor, status):
+    # " scout", "SCOUT" kimi yazılışlarla da yan keçmək olmasın (actor artıq strip olunub)
+    if status == "fact" and actor.casefold() == SCOUT_ACTOR:
+        raise SchemaError("SCOUT cannot create or change a fact; a human must confirm it")
+
+
 def _is_blank(value):
     return value is None or (isinstance(value, str) and not value.strip())
 
@@ -110,9 +121,12 @@ def _validate(object_type, props):
         raise SchemaError("props must be a dict")
     # Diskə yazılıb geri oxunanda eyni qalmayan data (tuple, set, rəqəm açar, NaN) qəbul olunmur
     try:
-        round_trip = json.loads(json.dumps(props, allow_nan=False))
-    except (TypeError, ValueError):
+        encoded = json.dumps(props, allow_nan=False)
+        round_trip = json.loads(encoded)
+    except (TypeError, ValueError, RecursionError):
         raise SchemaError("props must contain only JSON values") from None
+    if len(encoded.encode()) > MAX_PROPS_BYTES:
+        raise SchemaError(f"props is larger than {MAX_PROPS_BYTES} bytes")
     if round_trip != props:
         raise SchemaError("props must contain only JSON values with string keys")
     missing = [f for f in object_type.required if _is_blank(props.get(f))]
@@ -196,6 +210,7 @@ class Store:
             raise SchemaError(f"Unknown object type: {type_name}")
         _validate(object_type, props)
         _check_meta(status, source)
+        _check_scout(actor, status)
 
         # deepcopy: çağıranın əlində qalan dict-i sonradan dəyişmək store-a təsir etməsin
         obj = Object(self._new_id(), tenant_id, type_name, deepcopy(props), status, source)
@@ -244,6 +259,10 @@ class Store:
         # Heç nə dəyişmirsə, yeni versiya və audit yaranmır: təkrar idxal zərərsizdir
         if not changed:
             return _copy(current)
+        # SCOUT təsdiqlənmiş faktın datasını dəyişib "fact" saxlaya bilməz
+        _check_scout(actor, new_status)
+        if current.version >= MAX_VERSIONS:
+            raise SchemaError(f"Object {object_id} reached {MAX_VERSIONS} versions")
 
         updated = replace(current, props=new_props, status=new_status,
                           source=new_source, version=current.version + 1)

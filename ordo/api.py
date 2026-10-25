@@ -6,13 +6,16 @@ Rollar: reader yalnız oxuyur, writer həm oxuyur, həm yazır. Sxem API ilə d�
 """
 import threading
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, StrictInt, StrictStr
 
 from .store import ConflictError, SchemaError, TenantError
 
 MAX_BODY_BYTES = 64 * 1024
+# Siyahı cavabları ölçüsüz olmasın: ?limit=&offset= ilə səhifələnir
+DEFAULT_PAGE = 100
+MAX_PAGE = 1000
 
 
 class _Body(BaseModel):
@@ -135,10 +138,14 @@ def create_app(store, keys):
                                  status=body.status, source=body.source)
         return _object(o)
 
+    limit_q = Query(DEFAULT_PAGE, ge=1, le=MAX_PAGE)
+    offset_q = Query(0, ge=0)
+
     @app.get("/objects")
-    def find_objects(type: str, p=Depends(principal)):
+    def find_objects(type: str, limit: int = limit_q, offset: int = offset_q, p=Depends(principal)):
         with lock:
-            return [_object(o) for o in store.find(p.tenant_id, type)]
+            found = store.find(p.tenant_id, type)
+        return [_object(o) for o in found[offset:offset + limit]]
 
     @app.get("/objects/{object_id}")
     def get_object(object_id: int, p=Depends(principal)):
@@ -153,14 +160,17 @@ def create_app(store, keys):
         return _object(o)
 
     @app.get("/objects/{object_id}/history")
-    def history(object_id: int, p=Depends(principal)):
+    def history(object_id: int, limit: int = limit_q, offset: int = offset_q, p=Depends(principal)):
         with lock:
-            return [_object(o) for o in store.history(p.tenant_id, object_id)]
+            found = store.history(p.tenant_id, object_id)
+        return [_object(o) for o in found[offset:offset + limit]]
 
     @app.get("/objects/{object_id}/related")
-    def related(object_id: int, type: str, direction: str = "out", p=Depends(principal)):
+    def related(object_id: int, type: str, direction: str = "out",
+                limit: int = limit_q, offset: int = offset_q, p=Depends(principal)):
         with lock:
-            return [_object(o) for o in store.related(p.tenant_id, object_id, type, direction)]
+            found = store.related(p.tenant_id, object_id, type, direction)
+        return [_object(o) for o in found[offset:offset + limit]]
 
     @app.post("/relations", status_code=201)
     def create_relation(body: RelationIn, p=Depends(writer)):
@@ -169,8 +179,9 @@ def create_app(store, keys):
         return _relation(r)
 
     @app.get("/audit")
-    def audit(p=Depends(principal)):
+    def audit(limit: int = limit_q, offset: int = offset_q, p=Depends(principal)):
         with lock:
-            return [_event(e) for e in store.audit_log(p.tenant_id)]
+            found = store.audit_log(p.tenant_id)
+        return [_event(e) for e in found[offset:offset + limit]]
 
     return app
